@@ -1,0 +1,6 @@
+pandas
+numpy
+scipy
+causal-learn
+scikit-learn
+dowhy

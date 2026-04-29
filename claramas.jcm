@@ -1,0 +1,13 @@
+/* JaCaMo Proje Dosyası */
+
+mas claramas {
+
+    agent env : env.asl {
+        goals: start
+    }
+
+    agent a1  : a1.asl
+
+    // Dosyaların aranacağı yolları belirtiyoruz
+    asl-path: src/asl
+}

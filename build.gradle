@@ -1,0 +1,51 @@
+// build.gradle for the CausalBDI Jason/JaCaMo project
+
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'scm'
+version = '1.0'
+
+repositories {
+    mavenCentral()
+    // Gradle Tooling API repository
+    maven { url "https://repo.gradle.org/gradle/libs-releases" }
+
+    // JaCaMo repositories
+    maven { url "https://raw.githubusercontent.com/jacamo-lang/mvn-repo/master" }
+    maven { url "https://jitpack.io" }
+}
+
+dependencies {
+    // JaCaMo core library
+    implementation 'org.jacamo:jacamo:1.3.0'
+}
+
+sourceSets {
+    main {
+        java { srcDirs = ['src/java'] }
+        resources {
+            srcDirs = ['src/asl']
+        }
+    }
+}
+
+// Include the .jcm file as a resource
+processResources {
+    from(projectDir) {
+        include 'claramas.jcm'
+    }
+}
+
+application {
+    mainClass = 'jacamo.infra.JaCaMoLauncher'
+    applicationDefaultJvmArgs = ['-Dfile.encoding=UTF-8']
+}
+
+run {
+    // Run the JaCaMo project descriptor
+    args = ['claramas.jcm']
+    standardInput = System.in
+}
