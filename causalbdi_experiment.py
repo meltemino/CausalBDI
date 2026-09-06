@@ -153,13 +153,16 @@ class CausalEngine:
             yu_ind = yu[0] == 0 and yu[1] == 0
             
             if not ya_adj:
-                return {"status": "proxy", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
+                # (0,0) = no DETECTED adjacency; NOT evidence of a latent common cause
+                return {"status": "no_adjacency", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
             elif ya_bid:
-                return {"status": "proxy", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
+                # (1,1) = the only PAG output that identifies latent confounding
+                return {"status": "latent_confounding", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
             elif ya_circ and yu_ind:
-                return {"status": "proxy", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
+                # circle = orientation unresolved (Y->A vs Y<->A indistinguishable)
+                return {"status": "ambiguous_orientation", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
             elif ya_circ:
-                return {"status": "ambiguous_latent", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
+                return {"status": "ambiguous_randomisation", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
             elif ya_dir:
                 return {"status": "direct_cause", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
             else:
@@ -344,7 +347,11 @@ def run_causal(goal=500, fuel=1000, max_steps=2000, epsilon=0.4,
         if phase == "naive" and env.step > 1 and env.step % disc_interval == 0:
             res = engine.discover(min_n=fci_min)
             st = res.get("status", "unknown")
-            if st in ("proxy", "ambiguous_latent"):
+            # Conservative decision rule: any outcome that fails to support the
+            # naive direct-cause model triggers the proxy-aware policy. This is a
+            # DECISION under uncertainty, not a claim of structural identification.
+            if st in ("no_adjacency", "latent_confounding",
+                      "ambiguous_orientation", "ambiguous_randomisation"):
                 phase = "causal"
                 engine.epoch = 1
                 fci_status = st
@@ -406,7 +413,9 @@ def fci_accuracy_test(n_tests=50, sizes=[50, 100, 150, 200]):
     print(f"{'='*65}\n")
     
     for n in sizes:
-        counts = {"proxy":0, "ambiguous_latent":0, "direct_cause":0, "adjacent":0, "error":0}
+        counts = {"latent_confounding":0, "ambiguous_orientation":0,
+                  "ambiguous_randomisation":0, "no_adjacency":0,
+                  "direct_cause":0, "adjacent":0, "error":0}
         for t in range(n_tests):
             np.random.seed(9000 + t*100 + n)
             data = []
@@ -432,20 +441,24 @@ def fci_accuracy_test(n_tests=50, sizes=[50, 100, 150, 200]):
                 ya_dir = ya==(-1,1)
                 yu_ind = yu[0]==0 and yu[1]==0
                 
-                if not ya_adj: counts["proxy"] += 1
-                elif ya_bid: counts["proxy"] += 1
-                elif ya_circ and yu_ind: counts["proxy"] += 1
-                elif ya_circ: counts["ambiguous_latent"] += 1
+                if not ya_adj: counts["no_adjacency"] += 1
+                elif ya_bid: counts["latent_confounding"] += 1
+                elif ya_circ and yu_ind: counts["ambiguous_orientation"] += 1
+                elif ya_circ: counts["ambiguous_randomisation"] += 1
                 elif ya_dir: counts["direct_cause"] += 1
                 else: counts["adjacent"] += 1
             except:
                 counts["error"] += 1
         
-        trans = counts["proxy"] + counts["ambiguous_latent"]
-        print(f"  n={n:3d}: proxy={counts['proxy']:2d}/{n_tests} ({100*counts['proxy']/n_tests:.0f}%) "
-              f"| ambig={counts['ambiguous_latent']:2d} | direct={counts['direct_cause']:2d} "
-              f"| adj={counts['adjacent']:2d} | err={counts['error']:2d} "
-              f"| transition={trans}/{n_tests} ({100*trans/n_tests:.0f}%)")
+        trans = (counts["no_adjacency"] + counts["latent_confounding"]
+                 + counts["ambiguous_orientation"] + counts["ambiguous_randomisation"])
+        print(f"  n={n:3d}: bidirected={counts['latent_confounding']:2d}/{n_tests} "
+              f"| ambig_orient={counts['ambiguous_orientation']:2d} "
+              f"| ambig_rand={counts['ambiguous_randomisation']:2d} "
+              f"| no_adjacency={counts['no_adjacency']:2d} "
+              f"| direct={counts['direct_cause']:2d} | adj={counts['adjacent']:2d} "
+              f"| err={counts['error']:2d} "
+              f"| policy-transition={trans}/{n_tests} ({100*trans/n_tests:.0f}%)")
 
 
 # ================================================================
@@ -528,18 +541,19 @@ def run_experiment(n_runs=30, goal=500, fuel=1000, fci_min=50):
         print(row)
     
     # FCI details
-    print(f"\n  FCI DISCOVERY (CausalBDI agent):")
-    for st in ["proxy", "ambiguous_latent", "direct_cause", "adjacent", "N/A"]:
+    print(f"\n  FCI OUTCOME AT TRANSITION (CausalBDI agent):")
+    for st in ["latent_confounding", "ambiguous_orientation", "ambiguous_randomisation",
+               "no_adjacency", "direct_cause", "adjacent", "N/A"]:
         cnt = sum(1 for r in causal_r if r.fci_status == st)
         if cnt > 0:
             print(f"    {st:<22}: {cnt:2d}/{N} ({100*cnt/N:.0f}%)")
     
     trans = sum(1 for r in causal_r if r.transitioned)
-    print(f"    {'Transitioned':<22}: {trans:2d}/{N} ({100*trans/N:.0f}%)")
+    print(f"    {'Policy-transition rate':<22}: {trans:2d}/{N} ({100*trans/N:.0f}%)")
     
     disc_steps = [r.fci_step for r in causal_r if r.fci_step > 0]
     if disc_steps:
-        print(f"    {'Discovery step':<22}: {np.mean(disc_steps):.0f} ± {np.std(disc_steps):.0f}")
+        print(f"    {'Policy-transition step':<22}: {np.mean(disc_steps):.0f} ± {np.std(disc_steps):.0f}")
     
     gammas = [r.tipping_gamma for r in causal_r if r.tipping_gamma > 0]
     if gammas:

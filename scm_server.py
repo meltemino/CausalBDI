@@ -183,10 +183,17 @@ class CausalSCMEngine:
           (2, 2) = o-o : fully ambiguous
           (0, 0) = no edge : d-separated
 
-        Proxy detection logic:
-          1. Y-A edge has circle or bidirected mark → latent structure possible
-          2. Y-U has NO edge → Action is independent of Yellow (randomization OK)
-          3. Combination of (1) + (2) → Yellow is proxy, not direct cause
+        Structural reading vs. agent decision (kept strictly separate):
+          - (1,1)  Y <-> A : latent common cause IDENTIFIED from the PAG alone.
+          - (2,*)  circle  : Y -> A and Y <-> A are indistinguishable with the
+                             observed set {Y,U,A}; the proxy reading holds only
+                             under the declared background assumption that Yellow
+                             is a candidate proxy and not a cause of Accident.
+          - (0,0)  no edge : ABSENCE OF A DETECTED ADJACENCY. This is NOT evidence
+                             of a latent common cause; at small n it is also
+                             compatible with limited test power.
+          - (-1,1) Y -> A  : direct-cause reading supported.
+        Y-U has NO edge  -> randomisation diagnostic passed (Action indep. Yellow).
 
         Column ordering: [Yellow=0, Action=1, Accident=2]
         """
@@ -232,50 +239,54 @@ class CausalSCMEngine:
             # --- Decision logic ---
 
             if not ya_adjacent:
-                # No Y-A edge at all: d-separated (unlikely with enough data, but possible)
-                result["status_code"] = "proxy"
+                # (0,0): FCI found a separating set for Y and A. This reports the
+                # ABSENCE OF A DETECTED ADJACENCY only. It is not evidence of a
+                # latent common cause, and at this sample size it is equally
+                # compatible with an association the tests lack power to detect.
+                result["status_code"] = "no_adjacency"
                 result["status_text"] = (
-                    f"Discovery({method}): Y-A no edge (d-separated). "
-                    f"Yellow is proxy. Latent confounder likely."
+                    f"Discovery({method}): no Y-A adjacency detected. "
+                    f"This does NOT indicate a latent common cause; it only means "
+                    f"the naive direct-cause model is unsupported."
                 )
 
             elif ya_direct:
                 # Y → A: FCI thinks Yellow directly causes Accident
                 result["status_code"] = "direct_cause"
                 result["status_text"] = (
-                    f"Discovery({method}): Y → A (direct cause detected). "
+                    f"Discovery({method}): Y -> A (direct cause detected). "
                     f"Yellow may directly influence Accident. "
                     f"Proxy interpretation not supported."
                 )
 
             elif ya_bidirected:
-                # Y ↔ A: Latent common cause confirmed by FCI
-                result["status_code"] = "proxy"
+                # Y ↔ A: the only PAG output that identifies latent confounding
+                result["status_code"] = "latent_confounding"
                 result["status_text"] = (
-                    f"Discovery({method}): Y ↔ A (bidirected edge). "
-                    f"Latent common cause confirmed. "
-                    f"Yellow is proxy for latent confounder."
+                    f"Discovery({method}): Y <-> A (bidirected edge). "
+                    f"Neither variable is an ancestor of the other: a latent "
+                    f"common cause is identified from the PAG alone."
                 )
 
             elif ya_has_circle and yu_independent:
-                # Y o→ A with Y ⊥ U: Most common pattern with random actions
-                # Circle mark means FCI cannot determine if Y→A or Y↔A
-                # Combined with Y⊥U (confirmed by randomization), this is
-                # strong evidence for latent structure (proxy interpretation)
-                result["status_code"] = "proxy"
+                # Y o→ A or Y o-o A with Y ⊥ U (randomisation diagnostic passed).
+                # The circle leaves Y → A and Y ↔ A both admissible; FCI cannot
+                # resolve this with the observed set {Y, U, A} at ANY sample size.
+                result["status_code"] = "ambiguous_orientation"
                 result["status_text"] = (
-                    f"Discovery({method}): Y o→ A with Y⊥Action. "
-                    f"Circle mark indicates possible latent common cause. "
-                    f"Yellow is proxy for latent confounder (high confidence)."
+                    f"Discovery({method}): Y o-> A / Y o-o A with Y indep. Action. "
+                    f"Orientation unresolved: direct effect and latent confounding "
+                    f"are observationally indistinguishable here. Proxy reading "
+                    f"holds only under the declared background assumption that "
+                    f"Yellow is not a cause of Accident."
                 )
 
             elif ya_has_circle:
-                # Y o→ A but Y-U edge exists (shouldn't happen with random actions)
-                result["status_code"] = "ambiguous_latent"
+                # Circle mark but a Y-U edge exists → randomisation suspect
+                result["status_code"] = "ambiguous_randomisation"
                 result["status_text"] = (
-                    f"Discovery({method}): Y o→ A with Y-U edge. "
-                    f"Latent structure possible but action independence violated. "
-                    f"Check randomization quality."
+                    f"Discovery({method}): circle mark on Y-A with a Y-U edge. "
+                    f"Action independence violated; check randomisation quality."
                 )
 
             else:

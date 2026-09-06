@@ -1,0 +1,262 @@
+diff --git a/causalbdi_experiment.py b/causalbdi_experiment.py
+index db91e68..56d8851 100644
+--- a/causalbdi_experiment.py
++++ b/causalbdi_experiment.py
+@@ -153,13 +153,16 @@ class CausalEngine:
+             yu_ind = yu[0] == 0 and yu[1] == 0
+             
+             if not ya_adj:
+-                return {"status": "proxy", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
++                # (0,0) = no DETECTED adjacency; NOT evidence of a latent common cause
++                return {"status": "no_adjacency", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
+             elif ya_bid:
+-                return {"status": "proxy", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
++                # (1,1) = the only PAG output that identifies latent confounding
++                return {"status": "latent_confounding", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
+             elif ya_circ and yu_ind:
+-                return {"status": "proxy", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
++                # circle = orientation unresolved (Y->A vs Y<->A indistinguishable)
++                return {"status": "ambiguous_orientation", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
+             elif ya_circ:
+-                return {"status": "ambiguous_latent", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
++                return {"status": "ambiguous_randomisation", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
+             elif ya_dir:
+                 return {"status": "direct_cause", "ya": ya, "yu": yu, "ua": ua, "n": len(rd)}
+             else:
+@@ -344,7 +347,11 @@ def run_causal(goal=500, fuel=1000, max_steps=2000, epsilon=0.4,
+         if phase == "naive" and env.step > 1 and env.step % disc_interval == 0:
+             res = engine.discover(min_n=fci_min)
+             st = res.get("status", "unknown")
+-            if st in ("proxy", "ambiguous_latent"):
++            # Conservative decision rule: any outcome that fails to support the
++            # naive direct-cause model triggers the proxy-aware policy. This is a
++            # DECISION under uncertainty, not a claim of structural identification.
++            if st in ("no_adjacency", "latent_confounding",
++                      "ambiguous_orientation", "ambiguous_randomisation"):
+                 phase = "causal"
+                 engine.epoch = 1
+                 fci_status = st
+@@ -406,7 +413,9 @@ def fci_accuracy_test(n_tests=50, sizes=[50, 100, 150, 200]):
+     print(f"{'='*65}\n")
+     
+     for n in sizes:
+-        counts = {"proxy":0, "ambiguous_latent":0, "direct_cause":0, "adjacent":0, "error":0}
++        counts = {"latent_confounding":0, "ambiguous_orientation":0,
++                  "ambiguous_randomisation":0, "no_adjacency":0,
++                  "direct_cause":0, "adjacent":0, "error":0}
+         for t in range(n_tests):
+             np.random.seed(9000 + t*100 + n)
+             data = []
+@@ -432,20 +441,24 @@ def fci_accuracy_test(n_tests=50, sizes=[50, 100, 150, 200]):
+                 ya_dir = ya==(-1,1)
+                 yu_ind = yu[0]==0 and yu[1]==0
+                 
+-                if not ya_adj: counts["proxy"] += 1
+-                elif ya_bid: counts["proxy"] += 1
+-                elif ya_circ and yu_ind: counts["proxy"] += 1
+-                elif ya_circ: counts["ambiguous_latent"] += 1
++                if not ya_adj: counts["no_adjacency"] += 1
++                elif ya_bid: counts["latent_confounding"] += 1
++                elif ya_circ and yu_ind: counts["ambiguous_orientation"] += 1
++                elif ya_circ: counts["ambiguous_randomisation"] += 1
+                 elif ya_dir: counts["direct_cause"] += 1
+                 else: counts["adjacent"] += 1
+             except:
+                 counts["error"] += 1
+         
+-        trans = counts["proxy"] + counts["ambiguous_latent"]
+-        print(f"  n={n:3d}: proxy={counts['proxy']:2d}/{n_tests} ({100*counts['proxy']/n_tests:.0f}%) "
+-              f"| ambig={counts['ambiguous_latent']:2d} | direct={counts['direct_cause']:2d} "
+-              f"| adj={counts['adjacent']:2d} | err={counts['error']:2d} "
+-              f"| transition={trans}/{n_tests} ({100*trans/n_tests:.0f}%)")
++        trans = (counts["no_adjacency"] + counts["latent_confounding"]
++                 + counts["ambiguous_orientation"] + counts["ambiguous_randomisation"])
++        print(f"  n={n:3d}: bidirected={counts['latent_confounding']:2d}/{n_tests} "
++              f"| ambig_orient={counts['ambiguous_orientation']:2d} "
++              f"| ambig_rand={counts['ambiguous_randomisation']:2d} "
++              f"| no_adjacency={counts['no_adjacency']:2d} "
++              f"| direct={counts['direct_cause']:2d} | adj={counts['adjacent']:2d} "
++              f"| err={counts['error']:2d} "
++              f"| policy-transition={trans}/{n_tests} ({100*trans/n_tests:.0f}%)")
+ 
+ 
+ # ================================================================
+@@ -528,18 +541,19 @@ def run_experiment(n_runs=30, goal=500, fuel=1000, fci_min=50):
+         print(row)
+     
+     # FCI details
+-    print(f"\n  FCI DISCOVERY (CausalBDI agent):")
+-    for st in ["proxy", "ambiguous_latent", "direct_cause", "adjacent", "N/A"]:
++    print(f"\n  FCI OUTCOME AT TRANSITION (CausalBDI agent):")
++    for st in ["latent_confounding", "ambiguous_orientation", "ambiguous_randomisation",
++               "no_adjacency", "direct_cause", "adjacent", "N/A"]:
+         cnt = sum(1 for r in causal_r if r.fci_status == st)
+         if cnt > 0:
+             print(f"    {st:<22}: {cnt:2d}/{N} ({100*cnt/N:.0f}%)")
+     
+     trans = sum(1 for r in causal_r if r.transitioned)
+-    print(f"    {'Transitioned':<22}: {trans:2d}/{N} ({100*trans/N:.0f}%)")
++    print(f"    {'Policy-transition rate':<22}: {trans:2d}/{N} ({100*trans/N:.0f}%)")
+     
+     disc_steps = [r.fci_step for r in causal_r if r.fci_step > 0]
+     if disc_steps:
+-        print(f"    {'Discovery step':<22}: {np.mean(disc_steps):.0f} ± {np.std(disc_steps):.0f}")
++        print(f"    {'Policy-transition step':<22}: {np.mean(disc_steps):.0f} ± {np.std(disc_steps):.0f}")
+     
+     gammas = [r.tipping_gamma for r in causal_r if r.tipping_gamma > 0]
+     if gammas:
+diff --git a/scm_server.py b/scm_server.py
+index b7c2c50..d624e8f 100644
+--- a/scm_server.py
++++ b/scm_server.py
+@@ -183,10 +183,17 @@ class CausalSCMEngine:
+           (2, 2) = o-o : fully ambiguous
+           (0, 0) = no edge : d-separated
+ 
+-        Proxy detection logic:
+-          1. Y-A edge has circle or bidirected mark → latent structure possible
+-          2. Y-U has NO edge → Action is independent of Yellow (randomization OK)
+-          3. Combination of (1) + (2) → Yellow is proxy, not direct cause
++        Structural reading vs. agent decision (kept strictly separate):
++          - (1,1)  Y <-> A : latent common cause IDENTIFIED from the PAG alone.
++          - (2,*)  circle  : Y -> A and Y <-> A are indistinguishable with the
++                             observed set {Y,U,A}; the proxy reading holds only
++                             under the declared background assumption that Yellow
++                             is a candidate proxy and not a cause of Accident.
++          - (0,0)  no edge : ABSENCE OF A DETECTED ADJACENCY. This is NOT evidence
++                             of a latent common cause; at small n it is also
++                             compatible with limited test power.
++          - (-1,1) Y -> A  : direct-cause reading supported.
++        Y-U has NO edge  -> randomisation diagnostic passed (Action indep. Yellow).
+ 
+         Column ordering: [Yellow=0, Action=1, Accident=2]
+         """
+@@ -232,50 +239,54 @@ class CausalSCMEngine:
+             # --- Decision logic ---
+ 
+             if not ya_adjacent:
+-                # No Y-A edge at all: d-separated (unlikely with enough data, but possible)
+-                result["status_code"] = "proxy"
++                # (0,0): FCI found a separating set for Y and A. This reports the
++                # ABSENCE OF A DETECTED ADJACENCY only. It is not evidence of a
++                # latent common cause, and at this sample size it is equally
++                # compatible with an association the tests lack power to detect.
++                result["status_code"] = "no_adjacency"
+                 result["status_text"] = (
+-                    f"Discovery({method}): Y-A no edge (d-separated). "
+-                    f"Yellow is proxy. Latent confounder likely."
++                    f"Discovery({method}): no Y-A adjacency detected. "
++                    f"This does NOT indicate a latent common cause; it only means "
++                    f"the naive direct-cause model is unsupported."
+                 )
+ 
+             elif ya_direct:
+                 # Y → A: FCI thinks Yellow directly causes Accident
+                 result["status_code"] = "direct_cause"
+                 result["status_text"] = (
+-                    f"Discovery({method}): Y → A (direct cause detected). "
++                    f"Discovery({method}): Y -> A (direct cause detected). "
+                     f"Yellow may directly influence Accident. "
+                     f"Proxy interpretation not supported."
+                 )
+ 
+             elif ya_bidirected:
+-                # Y ↔ A: Latent common cause confirmed by FCI
+-                result["status_code"] = "proxy"
++                # Y ↔ A: the only PAG output that identifies latent confounding
++                result["status_code"] = "latent_confounding"
+                 result["status_text"] = (
+-                    f"Discovery({method}): Y ↔ A (bidirected edge). "
+-                    f"Latent common cause confirmed. "
+-                    f"Yellow is proxy for latent confounder."
++                    f"Discovery({method}): Y <-> A (bidirected edge). "
++                    f"Neither variable is an ancestor of the other: a latent "
++                    f"common cause is identified from the PAG alone."
+                 )
+ 
+             elif ya_has_circle and yu_independent:
+-                # Y o→ A with Y ⊥ U: Most common pattern with random actions
+-                # Circle mark means FCI cannot determine if Y→A or Y↔A
+-                # Combined with Y⊥U (confirmed by randomization), this is
+-                # strong evidence for latent structure (proxy interpretation)
+-                result["status_code"] = "proxy"
++                # Y o→ A or Y o-o A with Y ⊥ U (randomisation diagnostic passed).
++                # The circle leaves Y → A and Y ↔ A both admissible; FCI cannot
++                # resolve this with the observed set {Y, U, A} at ANY sample size.
++                result["status_code"] = "ambiguous_orientation"
+                 result["status_text"] = (
+-                    f"Discovery({method}): Y o→ A with Y⊥Action. "
+-                    f"Circle mark indicates possible latent common cause. "
+-                    f"Yellow is proxy for latent confounder (high confidence)."
++                    f"Discovery({method}): Y o-> A / Y o-o A with Y indep. Action. "
++                    f"Orientation unresolved: direct effect and latent confounding "
++                    f"are observationally indistinguishable here. Proxy reading "
++                    f"holds only under the declared background assumption that "
++                    f"Yellow is not a cause of Accident."
+                 )
+ 
+             elif ya_has_circle:
+-                # Y o→ A but Y-U edge exists (shouldn't happen with random actions)
+-                result["status_code"] = "ambiguous_latent"
++                # Circle mark but a Y-U edge exists → randomisation suspect
++                result["status_code"] = "ambiguous_randomisation"
+                 result["status_text"] = (
+-                    f"Discovery({method}): Y o→ A with Y-U edge. "
+-                    f"Latent structure possible but action independence violated. "
+-                    f"Check randomization quality."
++                    f"Discovery({method}): circle mark on Y-A with a Y-U edge. "
++                    f"Action independence violated; check randomisation quality."
+                 )
+ 
+             else:
+diff --git a/src/asl/a1.asl b/src/asl/a1.asl
+index bfb6805..ce6c48d 100644
+--- a/src/asl/a1.asl
++++ b/src/asl/a1.asl
+@@ -156,22 +156,34 @@ min_discovery_steps(50).            // FCI requires at least 50 random observati
+         scm.run_discovery(Status);
+         .print("[RESEARCH] status_code = ", Status);
+ 
+-        if (Status == proxy) {
+-            .print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+-            .print("!!! DISCOVERY: Yellow = PROXY            !!!");
+-            .print("!!! Latent confounder detected           !!!");
+-            .print("!!! Updating mental model...             !!!");
+-            .print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+-            // Epistemic transition: naive -> causal
++        if (Status == latent_confounding) {
++            .print("[RESEARCH] FCI: Y <-> A (bidirected).");
++            .print("[RESEARCH] Latent common cause identified from the PAG.");
+             -+belief_structure(causal_confounding);
+             scm.set_epoch(1);
+-            // Determine confidence via sensitivity analysis
+             !assess_confidence;
+         };
+-        if (Status == ambiguous_latent) {
+-            .print("[RESEARCH] Ambiguous latent structure detected.");
+-            .print("[RESEARCH] Circle mark suggests possible latent confounder.");
+-            .print("[RESEARCH] Transitioning to causal phase with caution.");
++        if (Status == ambiguous_orientation) {
++            .print("[RESEARCH] FCI: circle mark on Y-A; orientation unresolved.");
++            .print("[RESEARCH] Direct effect and latent confounding are not");
++            .print("[RESEARCH] distinguishable here. Proxy reading assumed from");
++            .print("[RESEARCH] the declared candidate-proxy role of Yellow.");
++            -+belief_structure(causal_confounding);
++            scm.set_epoch(1);
++            !assess_confidence;
++        };
++        if (Status == no_adjacency) {
++            .print("[RESEARCH] FCI: no Y-A adjacency detected.");
++            .print("[RESEARCH] This is NOT evidence of a latent common cause;");
++            .print("[RESEARCH] the naive direct-cause model is unsupported.");
++            .print("[RESEARCH] Conservative policy transition, low confidence.");
++            -+belief_structure(causal_confounding);
++            -+belief_confidence(low);
++            scm.set_epoch(1);
++        };
++        if (Status == ambiguous_randomisation) {
++            .print("[RESEARCH] FCI: circle mark on Y-A but a Y-U edge is present.");
++            .print("[RESEARCH] Randomisation quality suspect; transitioning with caution.");
+             -+belief_structure(causal_confounding);
+             scm.set_epoch(1);
+             !assess_confidence;

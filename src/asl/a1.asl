@@ -156,22 +156,34 @@ min_discovery_steps(50).            // FCI requires at least 50 random observati
         scm.run_discovery(Status);
         .print("[RESEARCH] status_code = ", Status);
 
-        if (Status == proxy) {
-            .print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-            .print("!!! DISCOVERY: Yellow = PROXY            !!!");
-            .print("!!! Latent confounder detected           !!!");
-            .print("!!! Updating mental model...             !!!");
-            .print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-            // Epistemic transition: naive -> causal
+        if (Status == latent_confounding) {
+            .print("[RESEARCH] FCI: Y <-> A (bidirected).");
+            .print("[RESEARCH] Latent common cause identified from the PAG.");
             -+belief_structure(causal_confounding);
             scm.set_epoch(1);
-            // Determine confidence via sensitivity analysis
             !assess_confidence;
         };
-        if (Status == ambiguous_latent) {
-            .print("[RESEARCH] Ambiguous latent structure detected.");
-            .print("[RESEARCH] Circle mark suggests possible latent confounder.");
-            .print("[RESEARCH] Transitioning to causal phase with caution.");
+        if (Status == ambiguous_orientation) {
+            .print("[RESEARCH] FCI: circle mark on Y-A; orientation unresolved.");
+            .print("[RESEARCH] Direct effect and latent confounding are not");
+            .print("[RESEARCH] distinguishable here. Proxy reading assumed from");
+            .print("[RESEARCH] the declared candidate-proxy role of Yellow.");
+            -+belief_structure(causal_confounding);
+            scm.set_epoch(1);
+            !assess_confidence;
+        };
+        if (Status == no_adjacency) {
+            .print("[RESEARCH] FCI: no Y-A adjacency detected.");
+            .print("[RESEARCH] This is NOT evidence of a latent common cause;");
+            .print("[RESEARCH] the naive direct-cause model is unsupported.");
+            .print("[RESEARCH] Conservative policy transition, low confidence.");
+            -+belief_structure(causal_confounding);
+            -+belief_confidence(low);
+            scm.set_epoch(1);
+        };
+        if (Status == ambiguous_randomisation) {
+            .print("[RESEARCH] FCI: circle mark on Y-A but a Y-U edge is present.");
+            .print("[RESEARCH] Randomisation quality suspect; transitioning with caution.");
             -+belief_structure(causal_confounding);
             scm.set_epoch(1);
             !assess_confidence;
