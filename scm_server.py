@@ -307,21 +307,27 @@ class CausalSCMEngine:
     # ================================================================
     def proxy_stratified_estimate(self, min_per_cell: int = 5) -> Dict[str, Any]:
         """
-        Proxy-stratified causal effect estimator.
+        Proxy-stratified back-door estimator (Sect. 4.2 of the paper).
 
-        Since Yellow is a proxy for the unmeasured confounder (Cleaning/Slippery),
-        standard IPW (conditioning only on Yellow) is BIASED.
+        Environment DAG: Cleaning -> {Yellow, Slippery}; Slippery, Action -> Accident.
+        On policy-driven steps the agent conditions its action on Yellow, inducing
+        the policy edge Yellow -> Action and hence the back-door path
 
-        Instead, we compute stratified estimates within Y-strata and report:
-          1. Stratified risk differences (informative bounds)
-          2. Weighted average assuming proxy ≈ confounder (optimistic estimate)
-          3. Worst-case bounds (no assumptions about proxy quality)
+            U <- Y <- C -> S -> A.
 
-        This is honest about what we can and cannot identify.
+        Yellow is an observed pre-action non-collider on that path, so conditioning
+        on Yellow BLOCKS it. Under the stated graph, consistency, positivity and the
+        assumption that action selection uses no information about the latent state
+        beyond Yellow, the interventional action risks are point-identified by
+        back-door adjustment on Yellow:
 
-        DAG: Cleaning → {Yellow, Slippery}, Slippery × Action → Accident
-        Yellow is NOT a sufficient adjustment set for Action → Accident.
-        But stratifying on Yellow provides PARTIAL information.
+            P(A=1 | do(U=u)) = sum_y P(Y=y) P(A=1 | U=u, Y=y).
+
+        Yellow need not measure Slippery perfectly; adjustment requires it to block
+        the back-door path, not to recover the latent state. Stratum-specific risk
+        differences are reported as descriptive summaries of between-stratum
+        variation, not as partial-identification bounds. See /sensitivity for
+        robustness to additional unmeasured action-outcome confounding.
         """
         c = self.counts()
         arr = self._to_array()
@@ -359,9 +365,9 @@ class CausalSCMEngine:
             }
 
         # --- Stratified estimates ---
-        # Within each Y-stratum, compute P(Accident | Action, Y)
-        # These are NOT causal effects (Yellow doesn't block the backdoor)
-        # but they provide bounds and diagnostics.
+        # Within each Y-stratum, compute P(Accident | Action, Y).
+        # Under the assumptions above their Y-weighted average is the
+        # back-door adjusted interventional risk.
 
         risk_fast_y0 = strata["y0_fast"]["rate"]
         risk_slow_y0 = strata["y0_slow"]["rate"]
@@ -376,8 +382,8 @@ class CausalSCMEngine:
         p_y1 = float(np.mean(y_col))
         p_y0 = 1.0 - p_y1
 
-        # Proxy-weighted average (ASSUMPTION: Yellow captures most confounding)
-        # This is an approximation, NOT an identified quantity
+        # Back-door adjustment on Y: sum_y P(Y=y) P(A=1 | U=u, Y=y).
+        # Point-identified under the assumptions stated in the docstring.
         risk_fast_adj = p_y0 * risk_fast_y0 + p_y1 * risk_fast_y1
         risk_slow_adj = p_y0 * risk_slow_y0 + p_y1 * risk_slow_y1
         rd_adjusted = risk_fast_adj - risk_slow_adj
@@ -412,10 +418,12 @@ class CausalSCMEngine:
             "strata": strata,
             "p_y1": p_y1,
             # Diagnostics
-            "WARNING": (
-                "Yellow is a proxy, not a sufficient adjustment variable. "
-                "Estimates are bounds/approximations, not point-identified. "
-                "See /sensitivity for robustness analysis."
+            "NOTE": (
+                "Point-identified by back-door adjustment on Yellow under the "
+                "stated graph and policy assumptions; Yellow blocks the "
+                "policy-induced back-door path without measuring the latent "
+                "state. See /sensitivity for robustness to additional "
+                "unmeasured action-outcome confounding."
             ),
             **c,
         }

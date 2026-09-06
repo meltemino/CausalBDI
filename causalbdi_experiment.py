@@ -357,7 +357,11 @@ def run_causal(goal=500, fuel=1000, max_steps=2000, epsilon=0.4,
                 fci_status = st
                 fci_step = env.step
                 transitioned = True
-                tipping = engine.sensitivity()
+                # Sensitivity analysis is run only where discovery yields a
+                # structural finding; no_adjacency is recorded as low confidence
+                # directly, matching the agent plan library (a1.asl).
+                if st != "no_adjacency":
+                    tipping = engine.sensitivity()
             elif st == "direct_cause":
                 fci_status = "direct_cause"
         
@@ -563,12 +567,12 @@ def run_experiment(n_runs=30, goal=500, fuel=1000, fci_min=50):
     from scipy import stats as sp_stats
     naive_rates = [r.acc_rate for r in naive_r]
     causal_rates = [r.acc_rate for r in causal_r]
-    t_stat, p_val = sp_stats.ttest_ind(naive_rates, causal_rates)
+    t_stat, p_val = sp_stats.ttest_ind(naive_rates, causal_rates, equal_var=False)
     print(f"\n  Welch t-test (accident rate, naive vs causal): t={t_stat:.3f}, p={p_val:.4f}")
     
     naive_steps_ = [r.steps for r in naive_r]
     causal_steps_ = [r.steps for r in causal_r]
-    t2, p2 = sp_stats.ttest_ind(naive_steps_, causal_steps_)
+    t2, p2 = sp_stats.ttest_ind(naive_steps_, causal_steps_, equal_var=False)
     print(f"  Welch t-test (steps, naive vs causal): t={t2:.3f}, p={p2:.4f}")
     
     return naive_r, causal_r, oracle_r
