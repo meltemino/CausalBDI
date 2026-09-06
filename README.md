@@ -192,10 +192,16 @@ Expected output (with default parameters, ±1 standard deviation across
 | Steps to goal   | 233 ± 7        | 349 ± 58        | 214 ± 6         |
 | Accident rate   | 0.091 ± 0.016  | 0.068 ± 0.016   | 0.037 ± 0.012   |
 | Fuel remaining  | 682 ± 23       | 559 ± 64        | 754 ± 15        |
-| Discovery rate  | —              | 30/30 (100 %)   | —               |
-| Discovery step  | —              | 139 ± 18        | —               |
+| Policy-transition rate | —       | 30/30 (100 %)   | —               |
+| Policy-transition step | —       | 139 ± 18        | —               |
 
 Welch's t-test for accident rate (Naive vs CausalBDI): t = 5.31, p < 0.001.
+
+The transition rate reports how often the FCI-guided decision rule activated
+the causal policy, not how often a latent common cause was structurally
+identified. At the transition point the script also reports the distribution
+of PAG outcomes; with the default parameters this is `ambiguous_orientation`
+in 16 runs and `no_adjacency` in 14 runs.
 
 ## Repository
 
@@ -205,7 +211,8 @@ This code is hosted at: <https://github.com/meltemino/CausalBDI>
 
 The paper has been accepted at the **1st International Workshop on
 Causal Learning and Reasoning in Agents and Multiagent Systems
-(CLaRAMAS 2026)** and is forthcoming in the Springer LNCS proceedings.
+(CLaRAMAS 2026)** and is forthcoming in the Springer Communications in
+Computer and Information Science (CCIS) series.
 
 If you use this code, please cite the paper:
 
@@ -217,6 +224,8 @@ If you use this code, please cite the paper:
   booktitle = {Proceedings of the 1st International Workshop on Causal
                Learning and Reasoning in Agents and Multiagent Systems
                (CLaRAMAS 2026)},
+  series    = {Communications in Computer and Information Science},
+  publisher = {Springer},
   year      = {2026},
   note      = {To appear}
 }
