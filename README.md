@@ -15,11 +15,30 @@ server. The agent progresses through a four-phase epistemic lifecycle:
 1. **Naive exploration** — epsilon-greedy random actions to collect
    interventional data.
 2. **Causal discovery** — Fast Causal Inference (FCI) on randomized
-   observations to detect latent confounders.
+   observations, to test whether the observed proxy is a direct cause of
+   the outcome or is confounded with it by a latent variable.
 3. **Epistemic transition** — beliefs shift from correlational to causal
-   when proxy structure is identified.
+   when discovery fails to support the naive direct-cause reading.
 4. **Causal policy** — Thompson Sampling with proxy-stratified
    posteriors, calibrated by Rosenbaum sensitivity analysis.
+
+## Discovery statuses
+
+`scm.run_discovery(Status)` returns one of the following, following the
+classification in Sect. 5.2 of the paper. Marks are the PAG endpoint marks of
+the Yellow–Accident edge in causal-learn's encoding (-1 tail, 1 arrowhead,
+2 circle, 0 no edge):
+
+| Marks | Status | Reading |
+|---|---|---|
+| (1,1) | `latent_confounding` | bidirected edge; latent common cause supported by the PAG alone |
+| (2,1) / (2,2) | `ambiguous_orientation` | circle endpoint; `Y -> A` and `Y <-> A` are not distinguishable with {Y, U, A} |
+| (0,0) | `no_adjacency` | no *detected* adjacency; **not** evidence of a latent common cause |
+| (-1,1) | `direct_cause` | directed edge; naive model supported, no transition |
+| circle + `Y–U` edge | `ambiguous_randomisation` | randomisation diagnostic failed |
+
+All statuses except `direct_cause` trigger the conservative policy transition.
+This is a decision under uncertainty, not a claim of structural identification.
 
 ## Repository layout
 
